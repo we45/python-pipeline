@@ -13,7 +13,7 @@ bandit_sast:
     - git clone $REPO_URL /Vulnerable-Flask-App
   script:
     - pip install --ignore-installed bandit
-    - bandit --exclude tests -r /Vulnerable-Flask-App/ -f json -o bandit_result.json
+    - bandit --exclude tests -r /Vulnerable-Flask-App/ -f json -o bandit_result.json | true
   allow_failure: true
   artifacts:
     paths: [bandit_result.json]
