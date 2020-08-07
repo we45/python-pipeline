@@ -1,0 +1,73 @@
+stages:
+  - test
+  - build
+  - scan
+
+bandit_sast:
+  image: python:2.7-alpine3.9
+  stage: test
+  variables:
+    REPO_URL: "https://github.com/we45/Vulnerable-Flask-App.git"
+  before_script:
+    - apk update && apk add git
+    - git clone $REPO_URL /Vulnerable-Flask-App
+  script:
+    - pip install --ignore-installed bandit
+    - bandit --exclude tests -r /Vulnerable-Flask-App/ -f json -o bandit_result.json
+  allow_failure: true
+  artifacts:
+    paths: [bandit_result.json]
+    expire_in: 1 week
+
+pyraider_dependency_scanning:
+  image: python:3.7-alpine
+  stage: test
+  variables:
+    REPO_URL: "https://github.com/we45/Vulnerable-Flask-App.git"
+  before_script:
+    - apk update && apk add git
+    - git clone $REPO_URL /Vulnerable-Flask-App
+  script:
+    - pip install pyraider
+    - pyraider check -f /Vulnerable-Flask-App/app/requirements.txt -e json pyraider.json
+  artifacts:
+    paths: [pyraider.json]
+    expire_in: 1 week
+
+build:
+  image: docker:latest
+  stage: build
+  variables:
+    REPO_URL: "https://github.com/we45/Vulnerable-Flask-App.git"
+    DOCKER_DRIVER: overlay2
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - apk update && apk add git
+    - git clone $REPO_URL /Vulnerable-Flask-App
+  script:
+    - cd /Vulnerable-Flask-App
+    - echo "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - docker build --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA --tag $CI_REGISTRY_IMAGE:latest .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+shcheck:
+  image: docker:latest
+  stage: scan
+  variables:
+    SHCHECK_URL: "https://github.com/meliot/shcheck.git"
+    REPO_URL: "https://github.com/we45/Vulnerable-Flask-App.git"
+    DOCKER_DRIVER: overlay2
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - apk update && apk add git python3
+    - git clone $SHCHECK_URL /shcheck
+  script:
+    - docker run -p 5050:5050 -d --name vul_flask $CI_REGISTRY_IMAGE:latest
+    - sleep 5
+    - python3 /shcheck/shcheck.py http://docker:5050 -x -i
